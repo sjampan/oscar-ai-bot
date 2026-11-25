@@ -1,0 +1,140 @@
+# Copyright OpenSearch Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Security advisories tool definitions as plain data, shared by the Classic stack and the AgentCore runtime."""
+
+ACTION_GROUP_NAME = "securityAdvisoriesActions"
+ACTION_GROUP_DESCRIPTION = "Query CVEs and security vulnerabilities for OpenSearch project components, and remediate a CVE by opening a fix pull request"
+
+FUNCTIONS = [
+    {
+        "name": "query_vulnerabilities",
+        "description": "Query CVEs and vulnerabilities for OpenSearch project components. Scope by version or project name. Call list_projects() first to resolve the exact canonical project name.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Natural language query about vulnerabilities (e.g., 'Show me critical CVEs for OpenSearch Dashboards 2.19.6', 'High severity vulnerabilities from the past 30 days')",
+                "required": True,
+            },
+            "version": {
+                "type": "string",
+                "description": "OpenSearch version or branch to scope the query. Valid values: a three-part version (e.g., '2.19.6', '3.0.0') which resolves to its branch (origin/major.minor), a two-part branch version (e.g., '3.7', '2.19'), 'main', or an origin-prefixed tag (e.g., 'origin/2.19'). ",
+                "required": False,
+            },
+            "project_name": {
+                "type": "string",
+                "description": "Project name to scope the query (e.g., 'OpenSearch Dashboards', 'OpenSearch')",
+                "required": False,
+            },
+            "severity": {
+                "type": "string",
+                "description": "Comma-separated severity levels to filter results (e.g., 'CRITICAL', 'CRITICAL,HIGH'). Valid values: CRITICAL, HIGH, MEDIUM, LOW",
+                "required": False,
+            },
+            "age_days": {
+                "type": "integer",
+                "description": "Minimum age in days of CVE advisories to include. Only return CVEs published at least this many days ago (e.g., 60 for advisories older than 60 days, 14 for 2 weeks). Default to 60 for release preparation queries.",
+                "required": False,
+            },
+            "release_components": {
+                "type": "boolean",
+                "description": "Set true to scope results to the OpenSearch and OpenSearch-Dashboards release-bundle components only. Use when the user asks about 'release components', the 'release bundle', or 'bundle components'. Omit for all tracked projects.",
+                "required": False,
+            },
+        },
+    },
+    {
+        "name": "list_projects",
+        "description": "List all projects and their available tags/versions in the scans index. Use to discover what components and release versions are available. Each project includes a 'tags' array with all available versions and branches sorted in descending semver order.",
+        "parameters": {},
+    },
+    {
+        "name": "query_tickets",
+        "description": "Query SIM tickets by CVE ID, project name, or branch.",
+        "parameters": {
+            "cve_id": {
+                "type": "string",
+                "description": "CVE identifier to filter tickets (e.g., 'CVE-2026-27903').",
+                "required": False,
+            },
+            "project_name": {
+                "type": "string",
+                "description": "Project or component name to filter tickets.",
+                "required": False,
+            },
+            "branch": {
+                "type": "string",
+                "description": "Branch name to filter tickets (e.g., 'origin/main' or 'origin/3.7').",
+                "required": False,
+            },
+        },
+    },
+    {
+        "name": "list_ticket_projects",
+        "description": "List projects that currently have assigned SIM tickets.",
+        "parameters": {},
+    },
+    {
+        "name": "list_affected_repositories",
+        "description": "List the OpenSearch project repositories that a specific CVE affects on a given branch (defaults to main). Call this FIRST when the user asks to remediate a CVE: use the returned list to resolve which repository the user means before calling remediate_cve. Do NOT guess or hardcode repository names.",
+        "parameters": {
+            "cve_id": {
+                "type": "string",
+                "description": "The CVE identifier to look up (e.g., 'CVE-2026-1225').",
+                "required": True,
+            },
+            "branch": {
+                "type": "string",
+                "description": "Branch or version to scope the lookup (e.g., '2.19', 'origin/2.19'). Defaults to main if omitted.",
+                "required": False,
+            },
+        },
+    },
+    {
+        "name": "remediate_cve",
+        "description": "Remediate a specific CVE on a specific OpenSearch project repository by opening a pull request that bumps the vulnerable dependency. Call list_affected_repositories first to get the exact repository name. Before doing any work it checks whether an open PR already fixes this CVE (e.g. from Dependabot, Mend, or a maintainer) and, if so, returns that existing PR instead of opening a duplicate.",
+        "parameters": {
+            "cve_id": {
+                "type": "string",
+                "description": "The CVE identifier to remediate (e.g., 'CVE-2026-1225').",
+                "required": True,
+            },
+            "repo_name": {
+                "type": "string",
+                "description": "The exact repository to remediate, as returned by list_affected_repositories (e.g., 'alerting-dashboards-plugin'). Must be one of the repositories that CVE affects.",
+                "required": True,
+            },
+            "branch": {
+                "type": "string",
+                "description": "Branch or version to remediate on (e.g., '2.19', 'origin/2.19'). Defaults to main if omitted. Must match the branch used in list_affected_repositories.",
+                "required": False,
+            },
+        },
+    },
+    {
+        "name": "remediate_project",
+        "description": "Remediate multiple CVEs for one OpenSearch project in a single pull request (one PR per project, per ecosystem). Use this when the user asks to remediate several CVEs at once, or 'all' CVEs, for a project. Call list_projects first to resolve the exact canonical project name. It gathers the project's affected CVEs, deduplicates them per package (bumping each to the highest patched version), and skips any that already have an open fix PR. Prefer this over calling remediate_cve repeatedly for the same project.",
+        "parameters": {
+            "project_name": {
+                "type": "string",
+                "description": "The exact canonical project name, as returned by list_projects (e.g., 'OpenSearch Dashboards').",
+                "required": True,
+            },
+            "cve_ids": {
+                "type": "string",
+                "description": "Optional comma-separated list of the specific CVE IDs to remediate (e.g., 'CVE-2026-1225,CVE-2026-1300'). Omit to remediate every CVE the project is affected by.",
+                "required": False,
+            },
+            "mode": {
+                "type": "string",
+                "description": "How to group the fixes into pull requests. 'project' (default) opens one PR per project per ecosystem containing all the fixes; 'per_cve' opens a separate PR per package. Valid values: 'project', 'per_cve'.",
+                "required": False,
+            },
+            "branch": {
+                "type": "string",
+                "description": "Branch or version to remediate on (e.g., '2.19', 'origin/2.19'). Defaults to main if omitted.",
+                "required": False,
+            },
+        },
+    },
+]
