@@ -13,6 +13,7 @@ cdk.out/
 cdk-outputs.json
 .coverage
 agents/github/lambda/bin/
+agentcore/specs/
 
 # Python
 __pycache__/
