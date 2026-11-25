@@ -28,6 +28,7 @@ coverage = ">=7.0.0"
 moto = {version = ">=4.2.0", extras = ["dynamodb", "secretsmanager", "ssm"]}
 slack-sdk = ">=3.19.0"
 hypothesis = "~=6.155"
+strands-agents = "==1.67.0"
 
 [requires]
 python_version = "3.12"
