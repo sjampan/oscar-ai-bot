@@ -126,3 +126,34 @@ LIMITED_SUPERVISOR_INSTRUCTION = """You are OSCAR (OpenSearch Conversational Aut
             - Use bullet points only when listing multiple items (e.g., job parameters, metric results).
             - Do not use emojis or informal language.
             """
+
+# Tool only the privileged supervisor has: sending Slack messages via the communication handler Lambda.
+PRIVILEGED_SUPERVISOR_ACTION_GROUPS = [
+    {
+        "name": "communicationOrchestration",
+        "description": "Send automated release management messages to Slack channels for authorized users",
+        "functions": [
+            {
+                "name": "send_automated_message",
+                "description": "Send automated messages to Slack channels for release management tasks. Processes natural language requests to generate and send templated messages. This can only be sent after acknowledging direct confirmation from the user.",
+                "parameters": {
+                    "message_content": {
+                        "type": "string",
+                        "description": "Complete message content filled with actual data",
+                        "required": True,
+                    },
+                    "confirmed": {
+                        "type": "boolean",
+                        "description": "A 'confirmed' parameter describing whether the user has explicitly confirmed the message sending request. IMPORTANT: do not set this parameter to true until the user has explicitly reviewed/confirmed the message sending request. When two-person review is enabled, the confirming user must be different from the requesting user.",
+                        "required": True,
+                    },
+                    "target_channel": {
+                        "type": "string",
+                        "description": "Target Slack channel ID or name",
+                        "required": True,
+                    },
+                },
+            },
+        ],
+    },
+]

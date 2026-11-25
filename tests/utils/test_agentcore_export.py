@@ -12,6 +12,7 @@ from agents.jenkins import JenkinsAgent
 from agents.metrics import MetricsAgent
 from agents.SecurityAdvisories import SecurityAdvisoriesAgent
 from agents.supervisor_prompts import (LIMITED_SUPERVISOR_INSTRUCTION,
+                                       PRIVILEGED_SUPERVISOR_ACTION_GROUPS,
                                        PRIVILEGED_SUPERVISOR_INSTRUCTION)
 from utils.agentcore_export import (build_agent_spec, build_supervisor_specs,
                                     write_specs)
@@ -59,6 +60,13 @@ def test_supervisor_specs_use_shared_prompts():
     specs = build_supervisor_specs()
     assert specs["privileged"]["instruction"] == PRIVILEGED_SUPERVISOR_INSTRUCTION
     assert specs["limited"]["instruction"] == LIMITED_SUPERVISOR_INSTRUCTION
+
+
+def test_only_privileged_supervisor_can_send_messages():
+    specs = build_supervisor_specs()
+    assert specs["privileged"]["action_groups"] == PRIVILEGED_SUPERVISOR_ACTION_GROUPS
+    assert [f["name"] for f in specs["privileged"]["action_groups"][0]["functions"]] == ["send_automated_message"]
+    assert specs["limited"]["action_groups"] == []
 
 
 def test_write_specs_writes_one_file_per_agent_plus_supervisors(tmp_path):

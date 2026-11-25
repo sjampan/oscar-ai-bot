@@ -26,6 +26,7 @@ from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 
 from agents.supervisor_prompts import (LIMITED_SUPERVISOR_INSTRUCTION,
+                                       PRIVILEGED_SUPERVISOR_ACTION_GROUPS,
                                        PRIVILEGED_SUPERVISOR_INSTRUCTION)
 from utils.foundation_models import FoundationModels
 from utils.guardrail import create_guardrail, get_guardrail_configuration
@@ -161,41 +162,37 @@ class OscarAgentsStack(Stack):
     # ----------------------------------------------------------- supervisors
     def _create_supervisor_agent(self, collaborators: List[bedrock.CfnAgent.AgentCollaboratorProperty]) -> None:
         """Create the privileged supervisor agent with communication action group."""
-        communication_action_group = bedrock.CfnAgent.AgentActionGroupProperty(
-            action_group_name="communicationOrchestration",
-            description="Send automated release management messages to Slack channels for authorized users",
-            action_group_state="ENABLED",
-            action_group_executor=bedrock.CfnAgent.ActionGroupExecutorProperty(
-                lambda_=self.lambda_stack.lambda_functions[
-                    self.lambda_stack.get_communication_handler_lambda_function_name(self.env_name)
-                ].function_arn,
-            ),
-            function_schema=bedrock.CfnAgent.FunctionSchemaProperty(
-                functions=[
-                    bedrock.CfnAgent.FunctionProperty(
-                        name="send_automated_message",
-                        description="Send automated messages to Slack channels for release management tasks. Processes natural language requests to generate and send templated messages. This can only be sent after acknowledging direct confirmation from the user.",
-                        parameters={
-                            "message_content": bedrock.CfnAgent.ParameterDetailProperty(
-                                type="string",
-                                description="Complete message content filled with actual data",
-                                required=True,
-                            ),
-                            "confirmed": bedrock.CfnAgent.ParameterDetailProperty(
-                                type="boolean",
-                                description="A 'confirmed' parameter describing whether the user has explicitly confirmed the message sending request. IMPORTANT: do not set this parameter to true until the user has explicitly reviewed/confirmed the message sending request. When two-person review is enabled, the confirming user must be different from the requesting user.",
-                                required=True,
-                            ),
-                            "target_channel": bedrock.CfnAgent.ParameterDetailProperty(
-                                type="string",
-                                description="Target Slack channel ID or name",
-                                required=True,
-                            ),
-                        },
-                    )
-                ]
-            ),
-        )
+        communication_lambda_arn = self.lambda_stack.lambda_functions[
+            self.lambda_stack.get_communication_handler_lambda_function_name(self.env_name)
+        ].function_arn
+        supervisor_action_groups = [
+            bedrock.CfnAgent.AgentActionGroupProperty(
+                action_group_name=group["name"],
+                description=group["description"],
+                action_group_state="ENABLED",
+                action_group_executor=bedrock.CfnAgent.ActionGroupExecutorProperty(
+                    lambda_=communication_lambda_arn,
+                ),
+                function_schema=bedrock.CfnAgent.FunctionSchemaProperty(
+                    functions=[
+                        bedrock.CfnAgent.FunctionProperty(
+                            name=fn["name"],
+                            description=fn["description"],
+                            parameters={
+                                param_name: bedrock.CfnAgent.ParameterDetailProperty(
+                                    type=param["type"],
+                                    description=param["description"],
+                                    required=param["required"],
+                                )
+                                for param_name, param in fn["parameters"].items()
+                            },
+                        )
+                        for fn in group["functions"]
+                    ]
+                ),
+            )
+            for group in PRIVILEGED_SUPERVISOR_ACTION_GROUPS
+        ]
 
         privileged_agent = bedrock.CfnAgent(
             self, "OscarPrivilegedAgent",
@@ -207,7 +204,7 @@ class OscarAgentsStack(Stack):
             auto_prepare=True,
             agent_collaboration="SUPERVISOR_ROUTER",
             agent_collaborators=collaborators,
-            action_groups=[communication_action_group],
+            action_groups=supervisor_action_groups,
             guardrail_configuration=self.guardrail_config,
             knowledge_bases=[bedrock.CfnAgent.AgentKnowledgeBaseProperty(
                 description="Knowledge base with all build, test and release related docs",

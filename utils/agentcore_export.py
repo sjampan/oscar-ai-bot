@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agents.supervisor_prompts import (LIMITED_SUPERVISOR_INSTRUCTION,
+                                       PRIVILEGED_SUPERVISOR_ACTION_GROUPS,
                                        PRIVILEGED_SUPERVISOR_INSTRUCTION)
 from utils.foundation_models import FoundationModels
 
@@ -48,10 +49,18 @@ def build_agent_spec(agent) -> Dict[str, Any]:
 
 
 def build_supervisor_specs() -> Dict[str, Any]:
-    """Prompts and model for the privileged and limited supervisors."""
+    """Prompts, model and own tools for the privileged and limited supervisors."""
     return {
-        "privileged": {"model_id": SUPERVISOR_MODEL, "instruction": PRIVILEGED_SUPERVISOR_INSTRUCTION},
-        "limited": {"model_id": SUPERVISOR_MODEL, "instruction": LIMITED_SUPERVISOR_INSTRUCTION},
+        "privileged": {
+            "model_id": SUPERVISOR_MODEL,
+            "instruction": PRIVILEGED_SUPERVISOR_INSTRUCTION,
+            "action_groups": PRIVILEGED_SUPERVISOR_ACTION_GROUPS,
+        },
+        "limited": {
+            "model_id": SUPERVISOR_MODEL,
+            "instruction": LIMITED_SUPERVISOR_INSTRUCTION,
+            "action_groups": [],
+        },
     }
 
 
