@@ -3,10 +3,12 @@
 
 """Security advisories tool definitions as plain data, shared by the Classic stack and the AgentCore runtime."""
 
+from typing import Any, Dict, List
+
 ACTION_GROUP_NAME = "securityAdvisoriesActions"
 ACTION_GROUP_DESCRIPTION = "Query CVEs and security vulnerabilities for OpenSearch project components, and remediate a CVE by opening a fix pull request"
 
-FUNCTIONS = [
+FUNCTIONS: List[Dict[str, Any]] = [
     {
         "name": "query_vulnerabilities",
         "description": "Query CVEs and vulnerabilities for OpenSearch project components. Scope by version or project name. Call list_projects() first to resolve the exact canonical project name.",

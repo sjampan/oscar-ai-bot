@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Supervisor agent instructions, shared by the Classic stack and the AgentCore runtime."""
 
+from typing import Any, Dict, List
+
 PRIVILEGED_SUPERVISOR_INSTRUCTION = """You are OSCAR (OpenSearch Conversational Automation for Releases), the comprehensive AI assistant for OpenSearch project releases and release automation. Your primary goal is to provide accurate, actionable, and context-aware responses to user queries by leveraging your knowledge base, specialized collaborators, and communication capabilities.
 
             ## CRITICAL Response Format Rules (HIGHEST PRIORITY)
@@ -128,7 +130,7 @@ LIMITED_SUPERVISOR_INSTRUCTION = """You are OSCAR (OpenSearch Conversational Aut
             """
 
 # Tool only the privileged supervisor has: sending Slack messages via the communication handler Lambda.
-PRIVILEGED_SUPERVISOR_ACTION_GROUPS = [
+PRIVILEGED_SUPERVISOR_ACTION_GROUPS: List[Dict[str, Any]] = [
     {
         "name": "communicationOrchestration",
         "description": "Send automated release management messages to Slack channels for authorized users",

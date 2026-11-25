@@ -3,10 +3,12 @@
 
 """Metrics tool definitions as plain data, shared by the Classic stack and the AgentCore runtime."""
 
+from typing import Any, Dict, List
+
 ACTION_GROUP_NAME = "metricsActionGroup"
 ACTION_GROUP_DESCRIPTION = "Unified metrics analysis for builds, tests, and release readiness"
 
-FUNCTIONS = [
+FUNCTIONS: List[Dict[str, Any]] = [
     {
         "name": "query_metrics",
         "description": "Query metrics data using natural language. Automatically routes to the appropriate data source (build results, test results, or release metrics) based on query content.",

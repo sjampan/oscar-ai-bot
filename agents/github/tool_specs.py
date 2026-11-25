@@ -6,8 +6,9 @@
 Three tier-tagged groups: contributor (read-only), maintainer (create_tag, create_branch),
 admin (all writes). The Lambda enforces authorization at runtime via group gate + function gate.
 """
+from typing import Any, Dict, List
 
-ACTION_GROUPS = [
+ACTION_GROUPS: List[Dict[str, Any]] = [
     {
         "name": "githubContributorOps",
         "description": "Read-only GitHub operations: PRs, issues, search, and maintainer lookup",

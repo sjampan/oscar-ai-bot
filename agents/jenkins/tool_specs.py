@@ -3,10 +3,12 @@
 
 """Jenkins tool definitions as plain data, shared by the Classic stack and the AgentCore runtime."""
 
+from typing import Any, Dict, List
+
 ACTION_GROUP_NAME = "jenkinsOperations"
 ACTION_GROUP_DESCRIPTION = "Comprehensive Jenkins job operations with parameter validation"
 
-FUNCTIONS = [
+FUNCTIONS: List[Dict[str, Any]] = [
     {
         "name": "get_job_info",
         "description": "Retrieve detailed information about a Jenkins job including parameters and requirements. Use when users need to understand job requirements/available parameters or when you need to look at this data. Defaults to docker-scan job if no job specified.",
