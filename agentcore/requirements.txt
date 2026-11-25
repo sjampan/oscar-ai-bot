@@ -1,0 +1,7 @@
+# Container-only dependencies for the OSCAR AgentCore runtime.
+# Not installed by the CDK project (Pipfile): bedrock-agentcore needs a newer
+# boto3 than the project pins.
+bedrock-agentcore==1.28.0
+strands-agents==1.67.0
+boto3==1.44.11
+botocore==1.44.11
