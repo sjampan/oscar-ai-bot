@@ -25,6 +25,7 @@ def get_ssm_param_paths(env: str, agents: Optional[List] = None) -> Dict[str, st
         "supervisor_agent_alias": f"/oscar/{env}/bedrock/supervisor-agent-alias",
         "limited_supervisor_agent_id": f"/oscar/{env}/bedrock/limited-supervisor-agent-id",
         "limited_supervisor_agent_alias": f"/oscar/{env}/bedrock/limited-supervisor-agent-alias",
+        "agentcore_runtime_arn": f"/oscar/{env}/agentcore/runtime-arn",
     }
     if agents:
         for agent in agents:

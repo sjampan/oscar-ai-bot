@@ -18,22 +18,30 @@ import hashlib
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, List, Optional
 
 from aws_cdk import Fn, Stack
 from aws_cdk import aws_bedrock as bedrock
+from aws_cdk import aws_bedrockagentcore as agentcore
+from aws_cdk import aws_ecr_assets as ecr_assets
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 
 from agents.supervisor_prompts import (LIMITED_SUPERVISOR_INSTRUCTION,
                                        PRIVILEGED_SUPERVISOR_ACTION_GROUPS,
                                        PRIVILEGED_SUPERVISOR_INSTRUCTION)
+from utils.agentcore_export import SUPERVISOR_MODEL, write_specs
 from utils.foundation_models import FoundationModels
 from utils.guardrail import create_guardrail, get_guardrail_configuration
 
 from .bedrock_agent_details import get_ssm_param_paths
+from .policy_definitions import OscarPolicyDefinitions
 
 logger = logging.getLogger(__name__)
+AGENTCORE_DIR = Path(__file__).resolve().parents[1] / "agentcore"
+AGENTCORE_IDLE_SESSION_TIMEOUT_SECONDS = 600  # same as the Classic agents' idle_session_ttl_in_seconds
 
 
 def _dir_hash(path: str) -> str:
@@ -56,6 +64,8 @@ class OscarAgentsStack(Stack):
         environment: str,
         lambda_stack: Any,
         agents: Optional[List] = None,
+        enable_classic: bool = True,
+        enable_agentcore: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -70,10 +80,15 @@ class OscarAgentsStack(Stack):
         self.guardrail, self.guardrail_version = create_guardrail(self, self.env_name)
         self.guardrail_config = get_guardrail_configuration(self.guardrail, self.guardrail_version)
 
-        # Create agent-based collaborators, then supervisors
-        privileged_collaborators, limited_collaborators = self._create_collaborator_agents(agents or [])
-        self._create_supervisor_agent(privileged_collaborators)
-        self._create_limited_supervisor_agent(limited_collaborators)
+        # Classic: Create agent-based collaborators, then supervisors
+        if enable_classic:
+            privileged_collaborators, limited_collaborators = self._create_collaborator_agents(agents or [])
+            self._create_supervisor_agent(privileged_collaborators)
+            self._create_limited_supervisor_agent(limited_collaborators)
+
+        # AgentCore: the same agents as one runtime, next to Classic
+        if enable_agentcore:
+            self._create_agentcore_runtime(agents or [])
 
     # --------------------------------------------------------- collaborators
     def _create_collaborator_agents(self, agents) -> tuple:
@@ -275,4 +290,84 @@ class OscarAgentsStack(Stack):
             parameter_name=params["limited_supervisor_agent_alias"],
             string_value=limited_alias.attr_agent_alias_id,
             description=f"OSCAR limited supervisor agent alias ID for {self.env_name}",
+        )
+
+    # ------------------------------------------------------------- agentcore
+    def _create_agentcore_runtime(self, agents: List) -> None:
+        """Create the AgentCore Runtime that runs agentcore/ alongside the Classic agents."""
+        # Prompts and tools for the container, from the same code the Classic agents use.
+        write_specs(agents, AGENTCORE_DIR / "specs")
+        image = ecr_assets.DockerImageAsset(
+            self, "OscarAgentCoreImage",
+            directory=str(AGENTCORE_DIR),
+            platform=ecr_assets.Platform.LINUX_ARM64,
+        )
+
+        runtime_name = f"oscar_{self.env_name}".replace("-", "_")
+        lambda_arns = {agent.name: self.lambda_stack.lambda_functions[agent.name].function_arn for agent in agents}
+        lambda_arns["communication"] = self.lambda_stack.lambda_functions[
+            self.lambda_stack.get_communication_handler_lambda_function_name(self.env_name)
+        ].function_arn
+
+        role = iam.Role(
+            self, "OscarAgentCoreRuntimeRole",
+            assumed_by=iam.ServicePrincipal(
+                "bedrock-agentcore.amazonaws.com",
+                conditions={
+                    "StringEquals": {"aws:SourceAccount": self.account},
+                    "ArnLike": {"aws:SourceArn": f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:*"},
+                },
+            ),
+            description=f"Execution role for the OSCAR AgentCore runtime ({self.env_name})",
+        )
+        policies = OscarPolicyDefinitions(self.account, self.region, self.env_name).get_agentcore_runtime_policies(
+            runtime_name=runtime_name,
+            model_ids=sorted({agent.get_foundation_model() for agent in agents} | {SUPERVISOR_MODEL}),
+            guardrail_arn=self.guardrail.attr_guardrail_arn,
+            knowledge_base_id=self.knowledge_base_id,
+            lambda_arns=list(lambda_arns.values()),
+        )
+        for statement in policies:
+            role.add_to_policy(statement)
+        image.repository.grant_pull(role)
+
+        runtime = agentcore.CfnRuntime(
+            self, "OscarAgentCoreRuntime",
+            agent_runtime_name=runtime_name,
+            description=f"OSCAR supervisors and specialists ({self.env_name})",
+            agent_runtime_artifact=agentcore.CfnRuntime.AgentRuntimeArtifactProperty(
+                container_configuration=agentcore.CfnRuntime.ContainerConfigurationProperty(
+                    container_uri=image.image_uri,
+                ),
+            ),
+            role_arn=role.role_arn,
+            # PUBLIC: AgentCore-managed outbound access. Inbound stays IAM (SigV4) only:
+            # no authorizer is configured, so callers need bedrock-agentcore:InvokeAgentRuntime.
+            network_configuration=agentcore.CfnRuntime.NetworkConfigurationProperty(network_mode="PUBLIC"),
+            protocol_configuration="HTTP",
+            lifecycle_configuration=agentcore.CfnRuntime.LifecycleConfigurationProperty(
+                idle_runtime_session_timeout=AGENTCORE_IDLE_SESSION_TIMEOUT_SECONDS,
+            ),
+            environment_variables={
+                "OSCAR_LAMBDA_ARNS": self.to_json_string(lambda_arns),
+                "KNOWLEDGE_BASE_ID": self.knowledge_base_id,
+                "GUARDRAIL_ID": self.guardrail.attr_guardrail_id,
+                "GUARDRAIL_VERSION": self.guardrail_version.attr_version,
+            },
+        )
+        runtime.node.add_dependency(role)  # permissions must exist before the runtime starts
+
+        agentcore.CfnRuntimeEndpoint(
+            self, "OscarAgentCoreLiveEndpoint",
+            agent_runtime_id=runtime.attr_agent_runtime_id,
+            agent_runtime_version=runtime.attr_agent_runtime_version,
+            name="LIVE",
+            description=f"Live endpoint for the OSCAR AgentCore runtime ({self.env_name})",
+        )
+
+        ssm.StringParameter(
+            self, "AgentCoreRuntimeArnParam",
+            parameter_name=get_ssm_param_paths(self.env_name)["agentcore_runtime_arn"],
+            string_value=runtime.attr_agent_runtime_arn,
+            description=f"OSCAR AgentCore runtime ARN for {self.env_name}",
         )
