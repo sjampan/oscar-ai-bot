@@ -31,6 +31,7 @@ from stacks.secrets_stack import OscarSecretsStack
 from stacks.security_monitoring_stack import OscarSecurityMonitoringStack
 from stacks.storage_stack import OscarStorageStack
 from stacks.vpc_stack import OscarVpcStack
+from utils.feature_flags import env_flag
 
 # Configure logging
 logging.basicConfig(
@@ -162,6 +163,8 @@ def main() -> None:
         lambda_stack=lambda_stack,
         env=env,
         environment=environment,
+        enable_classic=env_flag("ENABLE_CLASSIC_AGENTS", True),
+        enable_agentcore=env_flag("ENABLE_AGENTCORE", False),
         agents=agents,
         description="OSCAR Bedrock agents"
     )
