@@ -311,3 +311,81 @@ class OscarPolicyDefinitions:
                 ]
             )
         ]
+
+    def get_agentcore_runtime_policies(
+        self,
+        runtime_name: str,
+        model_ids: List[str],
+        guardrail_arn: str,
+        knowledge_base_id: str,
+        lambda_arns: List[str],
+    ) -> List[iam.PolicyStatement]:
+        """
+        Least-privilege policies for the OSCAR AgentCore Runtime execution role.
+
+        Based on the AgentCore Runtime execution role in the AWS docs, narrowed to
+        OSCAR's own model(s), guardrail, knowledge base and tool Lambdas. ECR pull is
+        granted separately on the image asset's repository. Workload identity
+        (GetWorkloadAccessToken*) is omitted because OSCAR uses no OAuth integrations.
+        """
+        runtime_log_groups = f"arn:aws:logs:{self.region}:{self.account_id}:log-group:/aws/bedrock-agentcore/runtimes"
+        model_resources: List[str] = []
+        for model_id in model_ids:
+            # Cross-region inference profiles (us./eu./apac./global.) route to the base model in several regions.
+            base_model = model_id.split(".", 1)[1] if model_id.split(".", 1)[0] in ("us", "eu", "apac", "global") else model_id
+            model_resources.append(f"arn:aws:bedrock:{self.region}:{self.account_id}:inference-profile/{model_id}")
+            model_resources.append(f"arn:aws:bedrock:*::foundation-model/{base_model}")
+        return [
+            iam.PolicyStatement(
+                sid="InvokeOscarModels",
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=sorted(set(model_resources)),
+            ),
+            iam.PolicyStatement(
+                sid="ApplyOscarGuardrail",
+                actions=["bedrock:ApplyGuardrail"],
+                resources=[guardrail_arn],
+            ),
+            iam.PolicyStatement(
+                sid="RetrieveFromOscarKnowledgeBase",
+                actions=["bedrock:Retrieve"],
+                resources=[f"arn:aws:bedrock:{self.region}:{self.account_id}:knowledge-base/{knowledge_base_id}"],
+            ),
+            iam.PolicyStatement(
+                sid="InvokeOscarToolLambdas",
+                actions=["lambda:InvokeFunction"],
+                resources=lambda_arns,
+            ),
+            iam.PolicyStatement(
+                sid="RuntimeLogGroups",
+                actions=["logs:DescribeLogStreams", "logs:CreateLogGroup"],
+                resources=[f"{runtime_log_groups}/*"],
+            ),
+            iam.PolicyStatement(
+                sid="RuntimeLogResourcePolicy",
+                actions=["logs:PutResourcePolicy"],
+                resources=[f"{runtime_log_groups}/{runtime_name}-*"],
+            ),
+            iam.PolicyStatement(
+                sid="DescribeLogGroups",
+                actions=["logs:DescribeLogGroups"],
+                resources=[f"arn:aws:logs:{self.region}:{self.account_id}:log-group:*"],
+            ),
+            iam.PolicyStatement(
+                sid="RuntimeLogEvents",
+                actions=["logs:CreateLogStream", "logs:PutLogEvents"],
+                resources=[f"{runtime_log_groups}/*:log-stream:*"],
+            ),
+            iam.PolicyStatement(
+                sid="RuntimeTracing",
+                actions=["xray:PutTraceSegments", "xray:PutTelemetryRecords",
+                         "xray:GetSamplingRules", "xray:GetSamplingTargets"],
+                resources=["*"],
+            ),
+            iam.PolicyStatement(
+                sid="RuntimeMetrics",
+                actions=["cloudwatch:PutMetricData"],
+                resources=["*"],
+                conditions={"StringEquals": {"cloudwatch:namespace": "bedrock-agentcore"}},
+            ),
+        ]
